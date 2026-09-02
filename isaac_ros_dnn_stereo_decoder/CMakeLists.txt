@@ -16,6 +16,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 cmake_minimum_required(VERSION 3.22.1)
+include(cmake/select_cuda_host_compiler.cmake)
 project(isaac_ros_dnn_stereo_decoder LANGUAGES C CXX CUDA)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -36,10 +37,16 @@ endif()
 
 # DNNStereoDecoderNode
 ament_auto_add_library(dnn_stereo_decoder_node SHARED
+  src/batch_stereo_nodes.cpp
   src/dnn_stereo_decoder_node.cpp
   src/filter_disparity.cu.cpp)
-rclcpp_components_register_nodes(dnn_stereo_decoder_node "nvidia::isaac_ros::dnn_stereo_depth::DNNStereoDecoderNode")
+rclcpp_components_register_nodes(dnn_stereo_decoder_node
+  "nvidia::isaac_ros::dnn_stereo_depth::DNNStereoDecoderNode"
+  "nvidia::isaac_ros::dnn_stereo_depth::TensorBatchPackerNode"
+  "nvidia::isaac_ros::dnn_stereo_depth::BatchDNNStereoDecoderNode")
 set(node_plugins "${node_plugins}nvidia::isaac_ros::dnn_stereo_depth::DNNStereoDecoderNode;$<TARGET_FILE:dnn_stereo_decoder_node>\n")
+set(node_plugins "${node_plugins}nvidia::isaac_ros::dnn_stereo_depth::TensorBatchPackerNode;$<TARGET_FILE:dnn_stereo_decoder_node>\n")
+set(node_plugins "${node_plugins}nvidia::isaac_ros::dnn_stereo_depth::BatchDNNStereoDecoderNode;$<TARGET_FILE:dnn_stereo_decoder_node>\n")
 target_include_directories(dnn_stereo_decoder_node PUBLIC include)
 set_target_properties(dnn_stereo_decoder_node PROPERTIES
   BUILD_WITH_INSTALL_RPATH TRUE
