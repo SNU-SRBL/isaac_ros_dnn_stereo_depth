@@ -62,7 +62,10 @@ set_source_files_properties(
 
 # Install python scripts
 ament_python_install_package(${PROJECT_NAME})
-install(PROGRAMS scripts/isaac_ros_dnn_stereo_visualizer.py DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS
+  scripts/isaac_ros_dnn_stereo_visualizer.py
+  scripts/registered_depth.py
+  DESTINATION lib/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

@@ -6,6 +6,23 @@ NVIDIA-accelerated, deep learned stereo disparity estimation
 
 ---
 
+## GaussianFeels ROS2 fork setup
+
+This fork is built from the parent GaussianFeels ROS2 workspace. Complete the
+parent [mandatory setup](../../../../README.md#prerequisites) first, then use
+the normal workspace build:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source .venv-gaussianfeels_ros2/bin/activate
+python -m colcon build
+```
+
+The package-local CMake selects GCC 12; do not add a global compiler override.
+Fast-FoundationStereo engines are fixed to the selected batch size, GPU
+architecture, and TensorRT version. Export the matching ONNX and build the
+engine with the parent [FFS export guide](../realsense_interface/README.md#fast-foundationstereo-engine-export-and-preflight).
+
 ## Webinar Available
 
 Learn how to use this package by watching our on-demand webinar:
