@@ -3,37 +3,14 @@
 """Export a fixed-batch Fast-FoundationStereo ONNX artifact.
 
 The model implementation remains in an external Fast-FoundationStereo checkout.
-This wrapper reuses its ONNX-compatible model wrapper while making the static
-batch size and artifact provenance explicit.
+This wrapper reuses its ONNX-compatible model wrapper for a static batch size.
 """
 
 import argparse
-import hashlib
 import logging
-import os
 from pathlib import Path
 import runpy
-import subprocess
 import sys
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _git_revision(path: Path) -> str:
-    try:
-        return subprocess.check_output(
-            ["git", "-C", str(path), "rev-parse", "HEAD"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
 
 
 def _arguments() -> argparse.Namespace:
@@ -74,8 +51,6 @@ def main() -> None:
     upstream = runpy.run_path(str(exporter), run_name="_ffs_onnx_exporter")
 
     import torch
-    import yaml
-    from omegaconf import OmegaConf
 
     model_class = upstream["FastFoundationStereoSingleOnnx"]
     foundation_stereo = upstream["_fs_module"]
@@ -118,20 +93,7 @@ def main() -> None:
         dynamo=False,
     )
 
-    metadata = OmegaConf.to_container(model.args, resolve=True)
-    metadata.update({
-        "batch_size": args.batch_size,
-        "image_size": [args.height, args.width],
-        "checkpoint": str(checkpoint),
-        "checkpoint_sha256": _sha256(checkpoint),
-        "upstream_revision": _git_revision(source_dir),
-        "exporter_revision": _git_revision(Path(__file__).resolve().parent),
-    })
-    metadata_path = onnx_path.with_suffix(".yaml")
-    with metadata_path.open("w") as file:
-        yaml.safe_dump(metadata, file, sort_keys=True)
     logging.info("ONNX: %s", onnx_path)
-    logging.info("Metadata: %s", metadata_path)
 
 
 if __name__ == "__main__":
