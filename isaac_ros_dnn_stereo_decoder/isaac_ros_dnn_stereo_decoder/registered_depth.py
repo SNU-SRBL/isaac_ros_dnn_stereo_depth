@@ -53,7 +53,9 @@ def registered_depth_mm(disparity, left_info, color_info, ir_to_color, max_depth
 
     ``ir_to_color`` maps points expressed in the left stereo camera into the
     color camera. The nearest projected point wins each color pixel, matching
-    the occlusion semantics expected from an aligned depth image.
+    the occlusion semantics expected from an aligned depth image. Bilinear
+    splatting preserves fractional projections instead of rounding each
+    source point into one color pixel and leaving rasterization gaps.
     """
     if disparity.image.encoding != '32FC1':
         raise ValueError(
@@ -97,14 +99,36 @@ def registered_depth_mm(disparity, left_info, color_info, ir_to_color, max_depth
     rotated += np.array([translation.x, translation.y, translation.z], dtype=np.float32)
     z_color = rotated[:, 2]
     valid = np.isfinite(z_color) & (z_color > 0.0) & (z_color <= max_depth_m)
-    u = np.rint(cfx * rotated[:, 0] / z_color + ccx).astype(np.int64)
-    v = np.rint(cfy * rotated[:, 1] / z_color + ccy).astype(np.int64)
-    valid &= (u >= 0) & (u < color_info.width) & (v >= 0) & (v < color_info.height)
     if not np.any(valid):
         return output
 
-    flat = v[valid] * color_info.width + u[valid]
-    z_mm = np.rint(z_color[valid] * 1000.0).clip(1, 65535).astype(np.uint16)
+    rotated, z_color = rotated[valid], z_color[valid]
+    u = cfx * rotated[:, 0] / z_color + ccx
+    v = cfy * rotated[:, 1] / z_color + ccy
+    u0, v0 = np.floor(u).astype(np.int64), np.floor(v).astype(np.int64)
+    du, dv = u - u0, v - v0
+    pixels, depths = [], []
+    for dx, dy, weight in (
+        (0, 0, (1.0 - du) * (1.0 - dv)),
+        (1, 0, du * (1.0 - dv)),
+        (0, 1, (1.0 - du) * dv),
+        (1, 1, du * dv),
+    ):
+        x, y = u0 + dx, v0 + dy
+        keep = (
+            (weight > 1e-6)
+            & (x >= 0)
+            & (x < color_info.width)
+            & (y >= 0)
+            & (y < color_info.height)
+        )
+        if np.any(keep):
+            pixels.append(y[keep] * color_info.width + x[keep])
+            depths.append(z_color[keep])
+    if not pixels:
+        return output
+    flat = np.concatenate(pixels)
+    z_mm = np.rint(np.concatenate(depths) * 1000.0).clip(1, 65535).astype(np.uint16)
     # Sort by pixel then depth: the first entry is the visible surface.
     order = np.lexsort((z_mm, flat))
     flat, z_mm = flat[order], z_mm[order]

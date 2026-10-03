@@ -70,3 +70,26 @@ def test_registered_depth_uses_nearest_point_for_overlapping_projection():
         _identity_transform(),
     )
     assert depth.tolist() == [[500]]
+
+
+def test_registered_depth_splats_fractional_projection_without_blank_rows():
+    source = CameraInfo()
+    source.width = source.height = 4
+    source.k = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    color = CameraInfo()
+    color.width = color.height = 4
+    color.k = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    message = DisparityImage()
+    message.f = 1.0
+    message.t = 0.1
+    message.image = Image()
+    message.image.height = message.image.width = 4
+    message.image.encoding = "32FC1"
+    message.image.step = 16
+    message.image.data = np.full((4, 4), 0.1, dtype=np.float32).tobytes()
+    transform = _identity_transform()
+    transform.translation.y = 0.5
+
+    depth = registered_depth_mm(message, source, color, transform)
+    assert depth.dtype == np.uint16
+    assert np.all(depth > 0)
