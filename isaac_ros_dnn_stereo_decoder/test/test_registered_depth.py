@@ -16,8 +16,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from geometry_msgs.msg import Transform
+from isaac_ros_dnn_stereo_decoder import registered_depth
 from isaac_ros_dnn_stereo_decoder.registered_depth import registered_depth_mm
 import numpy as np
+import pytest
 from sensor_msgs.msg import CameraInfo, Image
 from stereo_msgs.msg import DisparityImage
 
@@ -93,3 +95,72 @@ def test_registered_depth_splats_fractional_projection_without_blank_rows():
     depth = registered_depth_mm(message, source, color, transform)
     assert depth.dtype == np.uint16
     assert np.all(depth > 0)
+
+
+def test_registered_depth_splat_matches_lexsort_for_edges_cutoff_and_z16_max():
+    width, height = 3, 2
+    u0 = np.array([0, 0, -1, 2, 1], dtype=np.int64)
+    v0 = np.array([0, 0, 0, 1, 0], dtype=np.int64)
+    du = np.array([0.0, 0.0, 0.5, 0.5, 5e-7])
+    dv = np.array([0.0, 0.0, 0.5, 0.5, 0.0])
+    z_color = np.array([2.0, 1.0, 65.535, 65.535, 3.0])
+
+    pixels, depths = [], []
+    for dx, dy, weight in (
+        (0, 0, (1.0 - du) * (1.0 - dv)),
+        (1, 0, du * (1.0 - dv)),
+        (0, 1, (1.0 - du) * dv),
+        (1, 1, du * dv),
+    ):
+        x, y = u0 + dx, v0 + dy
+        keep = (
+            (weight > 1e-6)
+            & (x >= 0)
+            & (x < width)
+            & (y >= 0)
+            & (y < height)
+        )
+        pixels.append(y[keep] * width + x[keep])
+        depths.append(z_color[keep])
+    flat = np.concatenate(pixels)
+    z_mm = np.rint(np.concatenate(depths) * 1000.0).clip(1, 65535).astype(np.uint16)
+    order = np.lexsort((z_mm, flat))
+    flat, z_mm = flat[order], z_mm[order]
+    first = np.empty(flat.size, dtype=bool)
+    first[0] = True
+    first[1:] = flat[1:] != flat[:-1]
+    expected = np.zeros((height, width), dtype=np.uint16)
+    expected.reshape(-1)[flat[first]] = z_mm[first]
+
+    actual = np.zeros_like(expected)
+    registered_depth._splat_registered_depth(
+        actual.reshape(-1), u0, v0, du, dv, z_color, width
+    )
+
+    assert np.array_equal(actual, expected)
+    assert actual[0, 0] == 1000
+    assert actual[0, 1] == 3000  # The sub-threshold right-hand splat is omitted.
+    assert actual[1, 0] == 65535
+    assert actual[1, 2] == 65535
+
+
+def test_main_does_not_shutdown_an_already_stopped_context(monkeypatch):
+    class FakeNode:
+        def destroy_node(self):
+            pass
+
+    def interrupt_spin(_node):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(registered_depth.rclpy, "init", lambda args: None)
+    monkeypatch.setattr(registered_depth, "RegisteredDepthNode", FakeNode)
+    monkeypatch.setattr(registered_depth.rclpy, "spin", interrupt_spin)
+    monkeypatch.setattr(registered_depth.rclpy, "ok", lambda: False)
+    monkeypatch.setattr(
+        registered_depth.rclpy,
+        "shutdown",
+        lambda: pytest.fail("shutdown must not run twice"),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        registered_depth.main()
